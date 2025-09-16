@@ -498,17 +498,17 @@ export const TextResourceContentsSchema = ResourceContentsSchema.extend({
  * stack overflows by using the native `atob` function for validation.
  */
 const Base64Schema = z.string().refine(
-    (val) => {
-        try {
-            // atob throws a DOMException if the string contains characters
-            // that are not part of the Base64 character set.
-            atob(val);
-            return true;
-        } catch {
-            return false;
-        }
-    },
-    { message: "Invalid Base64 string" },
+  (val) => {
+    try {
+      // atob throws a DOMException if the string contains characters
+      // that are not part of the Base64 character set.
+      atob(val);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { message: "Invalid Base64 string" },
 );
 
 export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
@@ -937,6 +937,74 @@ export const ToolAnnotationsSchema = z
   })
   .passthrough();
 
+/* Tool Requirements */
+/**
+ * Capability requirement for a tool.
+ */
+export const CapabilityRequirementSchema = z.object({
+  type: z.literal("capability"),
+  name: z.string().describe("The capability name (e.g., 'mcp:sampling', 'custom:myCapability')"),
+});
+
+/**
+ * Permission requirement for a tool.
+ */
+export const PermissionRequirementSchema = z.object({
+  type: z.literal("permission"),
+  subType: z.enum(["scope", "claim", "resource", "input"]),
+  name: z.optional(z.string()).describe("Permission name (for claim subType)"),
+  value: z.string().describe("Permission value"),
+  property: z.optional(z.string()).describe("Input property name (for input subType)"),
+  uri: z.optional(z.string()).describe("Resource URI (for resource subType)"),
+});
+
+/**
+ * Base requirement schema for individual requirements.
+ */
+export const BaseRequirementSchema = z.union([
+  CapabilityRequirementSchema,
+  PermissionRequirementSchema,
+]);
+
+/**
+ * Complete requirement schema that supports infinite nesting of logical operators.
+ * This is defined as a lazy schema to handle the recursive nature.
+ */
+export const RequirementSchema: z.ZodType<
+  | { type: "capability"; name: string }
+  | { type: "permission"; subType: "scope" | "claim" | "resource" | "input"; name?: string; value: string; property?: string; uri?: string }
+  | { anyOf: Array<unknown> }
+  | { allOf: Array<unknown> }
+  | { not: unknown }
+> = z.lazy(() => z.union([
+  BaseRequirementSchema,
+  z.object({
+    anyOf: z.array(RequirementSchema),
+  }),
+  z.object({
+    allOf: z.array(RequirementSchema),
+  }),
+  z.object({
+    not: RequirementSchema,
+  }),
+]));
+
+/**
+ * Logical requirement operators for complex requirement expressions.
+ * Now supports infinite nesting by referencing RequirementSchema.
+ */
+export const LogicalRequirementSchema = z.union([
+  z.object({
+    anyOf: z.array(RequirementSchema),
+  }),
+  z.object({
+    allOf: z.array(RequirementSchema),
+  }),
+  z.object({
+    not: RequirementSchema,
+  }),
+]);
+
 /**
  * Definition for a tool the client can call.
  */
@@ -976,6 +1044,12 @@ export const ToolSchema = BaseMetadataSchema.extend({
    * An optional list of icons for this tool.
    */
   icons: z.optional(z.array(IconSchema)),
+
+  /**
+   * Optional requirements that must be met for this tool to be executed.
+   * This is an array of requirement objects that are evaluated by the client.
+   */
+  requires: z.optional(z.array(RequirementSchema)),
 
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1691,3 +1765,10 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Tool Requirements */
+export type CapabilityRequirement = Infer<typeof CapabilityRequirementSchema>;
+export type PermissionRequirement = Infer<typeof PermissionRequirementSchema>;
+export type BaseRequirement = Infer<typeof BaseRequirementSchema>;
+export type LogicalRequirement = Infer<typeof LogicalRequirementSchema>;
+export type Requirement = Infer<typeof RequirementSchema>;

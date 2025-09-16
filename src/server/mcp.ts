@@ -42,6 +42,7 @@ import {
   ServerNotification,
   ToolAnnotations,
   LoggingMessageNotification,
+  Requirement,
 } from "../types.js";
 import { Completable, CompletableDef } from "./completable.js";
 import { UriTemplate, Variables } from "../shared/uriTemplate.js";
@@ -124,6 +125,7 @@ export class McpServer {
                 : EMPTY_OBJECT_JSON_SCHEMA,
               annotations: tool.annotations,
               _meta: tool._meta,
+              requires: tool.requires,
             };
 
             if (tool.outputSchema) {
@@ -186,9 +188,9 @@ export class McpServer {
             };
           }
         } else {
-          const cb = tool.callback as ToolCallback<undefined>;
+          const cb = tool.callback;
           try {
-            result = await Promise.resolve(cb(extra));
+            result = await Promise.resolve((cb as (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => CallToolResult | Promise<CallToolResult>)(extra));
           } catch (error) {
             result = {
               content: [
@@ -517,8 +519,8 @@ export class McpServer {
           const cb = prompt.callback as PromptCallback<PromptArgsRawShape>;
           return await Promise.resolve(cb(args, extra));
         } else {
-          const cb = prompt.callback as PromptCallback<undefined>;
-          return await Promise.resolve(cb(extra));
+          const cb = prompt.callback;
+          return await Promise.resolve((cb as (extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => GetPromptResult | Promise<GetPromptResult>)(extra));
         }
       },
     );
@@ -775,6 +777,7 @@ export class McpServer {
     outputSchema: ZodRawShape | undefined,
     annotations: ToolAnnotations | undefined,
     _meta: Record<string, unknown> | undefined,
+    requires: Requirement[] | undefined,
     callback: ToolCallback<ZodRawShape | undefined>
   ): RegisteredTool {
     const registeredTool: RegisteredTool = {
@@ -786,6 +789,7 @@ export class McpServer {
         outputSchema === undefined ? undefined : z.object(outputSchema),
       annotations,
       _meta,
+      requires,
       callback,
       enabled: true,
       disable: () => registeredTool.update({ enabled: false }),
@@ -802,6 +806,7 @@ export class McpServer {
         if (typeof updates.callback !== "undefined") registeredTool.callback = updates.callback
         if (typeof updates.annotations !== "undefined") registeredTool.annotations = updates.annotations
         if (typeof updates._meta !== "undefined") registeredTool._meta = updates._meta
+        if (typeof updates.requires !== "undefined") registeredTool.requires = updates.requires
         if (typeof updates.enabled !== "undefined") registeredTool.enabled = updates.enabled
         this.sendToolListChanged()
       },
@@ -919,7 +924,7 @@ export class McpServer {
     }
     const callback = rest[0] as ToolCallback<ZodRawShape | undefined>;
 
-    return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, undefined, callback)
+    return this._createRegisteredTool(name, undefined, description, inputSchema, outputSchema, annotations, undefined, undefined, callback)
   }
 
   /**
@@ -934,6 +939,7 @@ export class McpServer {
       outputSchema?: OutputArgs;
       annotations?: ToolAnnotations;
       _meta?: Record<string, unknown>;
+      requires?: Requirement[];
     },
     cb: ToolCallback<InputArgs>
   ): RegisteredTool {
@@ -941,7 +947,7 @@ export class McpServer {
       throw new Error(`Tool ${name} is already registered`);
     }
 
-    const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+    const { title, description, inputSchema, outputSchema, annotations, _meta, requires } = config;
 
     return this._createRegisteredTool(
       name,
@@ -951,6 +957,7 @@ export class McpServer {
       outputSchema,
       annotations,
       _meta,
+      requires,
       cb as ToolCallback<ZodRawShape | undefined>
     );
   }
@@ -1180,6 +1187,7 @@ export type RegisteredTool = {
   outputSchema?: AnyZodObject;
   annotations?: ToolAnnotations;
   _meta?: Record<string, unknown>;
+  requires?: Requirement[];
   callback: ToolCallback<undefined | ZodRawShape>;
   enabled: boolean;
   enable(): void;
@@ -1193,6 +1201,7 @@ export type RegisteredTool = {
       outputSchema?: OutputArgs,
       annotations?: ToolAnnotations,
       _meta?: Record<string, unknown>,
+      requires?: Requirement[],
       callback?: ToolCallback<InputArgs>,
       enabled?: boolean
     }): void
